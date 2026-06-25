@@ -10,11 +10,28 @@ import { gsap } from 'gsap';
 import { Key, Check, X, AlertCircle } from 'lucide-react';
 
 function App() {
-  const { fabricCanvas, hfToken, groqKey, falKey, setHfToken, setGroqKey, setFalKey } = useStore();
+  const { 
+    fabricCanvas, 
+    hfToken, 
+    groqKey, 
+    falKey, 
+    runwareKey, 
+    inpaintingProvider, 
+    photoroomKey,
+    setHfToken, 
+    setGroqKey, 
+    setFalKey, 
+    setRunwareKey, 
+    setPhotoroomKey,
+    setInpaintingProvider 
+  } = useStore();
   const [showSettings, setShowSettings] = useState(false);
   const [tempHfToken, setTempHfToken] = useState(hfToken);
   const [tempGroqKey, setTempGroqKey] = useState(groqKey);
   const [tempFalKey, setTempFalKey] = useState(falKey);
+  const [tempRunwareKey, setTempRunwareKey] = useState(runwareKey);
+  const [tempPhotoroomKey, setTempPhotoroomKey] = useState(photoroomKey);
+  const [tempInpaintingProvider, setTempInpaintingProvider] = useState(inpaintingProvider);
   const [saveSuccess, setSaveSuccess] = useState(false);
   
   // Element references for animations
@@ -132,6 +149,9 @@ function App() {
     setHfToken(tempHfToken);
     setGroqKey(tempGroqKey);
     setFalKey(tempFalKey);
+    setRunwareKey(tempRunwareKey);
+    setPhotoroomKey(tempPhotoroomKey);
+    setInpaintingProvider(tempInpaintingProvider);
     setSaveSuccess(true);
     setTimeout(() => {
       setSaveSuccess(false);
@@ -140,7 +160,7 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#070709] text-[#f1f5f9] overflow-hidden select-none relative mesh-gradient">
+    <div className="flex flex-col h-screen w-screen bg-[#0a091e] text-[#f1f5f9] overflow-hidden select-none relative mesh-gradient">
       {/* Dynamic ambient glowing spheres in background */}
       <div className="absolute top-[20%] left-[25%] w-[350px] h-[350px] bg-violet-600/10 rounded-full blur-[100px] pointer-events-none"></div>
       <div className="absolute bottom-[20%] right-[25%] w-[400px] h-[400px] bg-fuchsia-600/800 bg-opacity-[0.05] rounded-full blur-[120px] pointer-events-none"></div>
@@ -155,6 +175,8 @@ function App() {
             setTempHfToken(hfToken);
             setTempGroqKey(groqKey);
             setTempFalKey(falKey);
+            setTempRunwareKey(runwareKey);
+            setTempInpaintingProvider(inpaintingProvider);
             setShowSettings(true);
           }}
         />
@@ -181,7 +203,7 @@ function App() {
       {/* Settings Modal - Rendered outside transformed wrapper to prevent cut-off bugs */}
       {showSettings && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[100] flex items-center justify-center">
-          <div className="bg-[#0c0c0e]/90 border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in duration-200">
+          <div className="bg-[#12112d]/90 border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in duration-200">
             <div className="flex items-center justify-between border-b border-white/5 pb-3.5 mb-4">
               <div className="flex items-center gap-2.5">
                 <Key className="h-4 w-4 text-[#c084fc]" />
@@ -224,16 +246,58 @@ function App() {
 
               <div>
                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
-                  Fal.ai API Key (Free Inpainting/Outpainting)
+                  Inpainting & Outpainting Provider
+                </label>
+                <select
+                  value={tempInpaintingProvider}
+                  onChange={(e) => setTempInpaintingProvider(e.target.value as 'fal' | 'runware')}
+                  className="w-full bg-[#16161a] border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-zinc-300 focus:outline-none focus:border-violet-500/80 cursor-pointer"
+                >
+                  <option value="fal">Fal.ai (Direct Inpainting)</option>
+                  <option value="runware">Runware (FLUX Fill - Free Trial Friendly)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+                  Photoroom API Key
                 </label>
                 <input
                   type="password"
-                  value={tempFalKey}
-                  onChange={(e) => setTempFalKey(e.target.value)}
-                  placeholder="Key ..."
+                  value={tempPhotoroomKey}
+                  onChange={(e) => setTempPhotoroomKey(e.target.value)}
+                  placeholder="sk_pr_..."
                   className="w-full bg-white/[0.02] border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-violet-500/80 transition-all"
                 />
               </div>
+
+              {tempInpaintingProvider === 'fal' ? (
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+                    Fal.ai API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={tempFalKey}
+                    onChange={(e) => setTempFalKey(e.target.value)}
+                    placeholder="Key ..."
+                    className="w-full bg-white/[0.02] border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-violet-500/80 transition-all"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
+                    Runware API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={tempRunwareKey}
+                    onChange={(e) => setTempRunwareKey(e.target.value)}
+                    placeholder="Runware API Key..."
+                    className="w-full bg-white/[0.02] border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-violet-500/80 transition-all"
+                  />
+                </div>
+              )}
 
               {(!tempHfToken || !tempGroqKey) && (
                 <div className="flex items-start gap-2 bg-red-500/5 border border-red-500/10 p-3 rounded-xl text-red-400 text-[10px] leading-relaxed">

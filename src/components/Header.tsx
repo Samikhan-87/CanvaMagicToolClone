@@ -37,7 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-[56px] border-b border-white/5 bg-[#0c0c0e]/95 backdrop-blur-md flex items-center justify-between px-4.5 z-20 shrink-0 select-none">
+    <header className="h-[56px] border-b border-white/5 bg-[#12112d]/95 backdrop-blur-md flex items-center justify-between px-4.5 z-20 shrink-0 select-none">
       {/* Left side actions */}
       <div className="flex items-center gap-4">
         <button 

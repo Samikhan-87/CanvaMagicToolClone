@@ -7,7 +7,8 @@ import {
   Image, 
   PenTool, 
   Eraser, 
-  Maximize2 
+  Maximize2,
+  Hand
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -50,10 +51,16 @@ export const Sidebar: React.FC = () => {
       icon: Maximize2,
       description: 'Extend image borders',
     },
+    {
+      id: 'magic-grab' as ToolType,
+      label: 'Magic Grab',
+      icon: Hand,
+      description: 'Make images editable',
+    },
   ];
 
   return (
-    <aside className="w-[76px] bg-[#0c0c0e]/95 backdrop-blur-md flex flex-col items-center py-4 gap-2 border-r border-white/5 z-20 shrink-0 select-none h-full">
+    <aside className="w-[76px] bg-[#12112d]/95 backdrop-blur-md flex flex-col items-center py-4 gap-2 border-r border-white/5 z-20 shrink-0 select-none h-full">
       <div className="flex flex-col gap-1.5 w-full px-1.5">
         {menuItems.map((item) => {
           const Icon = item.icon;
@@ -79,7 +86,7 @@ export const Sidebar: React.FC = () => {
               <span className="text-[9px] font-semibold tracking-tight text-center leading-tight">{item.label}</span>
               
               {/* Tooltip */}
-              <div className="absolute left-[82px] px-3 py-2 rounded-lg bg-[#0e0f12] border border-white/10 text-[10px] text-white font-medium opacity-0 pointer-events-none group-hover:opacity-100 transition-all duration-200 shadow-2xl whitespace-nowrap z-50 transform translate-x-2 group-hover:translate-x-0">
+              <div className="absolute left-[82px] px-3 py-2 rounded-lg bg-[#1a183d] border border-white/10 text-[10px] text-white font-medium opacity-0 pointer-events-none group-hover:opacity-100 transition-all duration-200 shadow-2xl whitespace-nowrap z-50 transform translate-x-2 group-hover:translate-x-0">
                 <p className="font-bold text-[#c084fc]">{item.label}</p>
                 <p className="text-[9px] text-zinc-400 font-normal">{item.description}</p>
               </div>

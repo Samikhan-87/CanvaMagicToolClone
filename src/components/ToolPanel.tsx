@@ -4,10 +4,13 @@ import {
   generateImage, 
   generateText, 
   eraseObject, 
-  expandImage 
+  expandImage,
+  localInpaint,
+  photoroomEdit
 } from '../services/ai';
 import { removeBackground } from '@imgly/background-removal';
 import * as fabric from 'fabric';
+import Tesseract from 'tesseract.js';
 import { 
   Sparkles, 
   PenTool, 
@@ -17,7 +20,8 @@ import {
   Loader2, 
   ArrowLeft,
   RotateCcw,
-  Sparkle
+  Sparkle,
+  Hand
 } from 'lucide-react';
 
 export const ToolPanel: React.FC = () => {
@@ -28,6 +32,9 @@ export const ToolPanel: React.FC = () => {
     hfToken, 
     groqKey, 
     falKey,
+    runwareKey,
+    photoroomKey,
+    inpaintingProvider,
     isLoading, 
     setIsLoading, 
     brushSize, 
@@ -52,6 +59,8 @@ export const ToolPanel: React.FC = () => {
   // Eraser states
   const [eraserMode, setEraserMode] = useState<'erase' | 'restore'>('erase');
   const [showOriginal, setShowOriginal] = useState(false);
+  const [eraserSubMode, setEraserSubMode] = useState<'brush' | 'prompt' | 'text-auto'>('brush');
+  const [eraserPrompt, setEraserPrompt] = useState('');
 
   const addImageToCanvas = async (url: string) => {
     if (!fabricCanvas) return;
@@ -190,87 +199,166 @@ export const ToolPanel: React.FC = () => {
     if (!fabricCanvas) return;
     
     const imgObj = fabricCanvas.getObjects().find((o: fabric.Object) => o.type === 'image') as fabric.Image;
-    const paths = fabricCanvas.getObjects().filter((o: fabric.Object) => o.type === 'path') as fabric.Path[];
 
     if (!imgObj) {
       setError('No image found on the canvas to erase from.');
       return;
     }
-    if (paths.length === 0) {
-      setError('Please draw over the object you want to erase first.');
-      return;
-    }
 
-    setIsLoading(true, 'Erasing object with AI inpainting...');
-    setError(null);
+    if (eraserSubMode === 'brush') {
+      const paths = fabricCanvas.getObjects().filter((o: fabric.Object) => o.type === 'path') as fabric.Path[];
+      if (paths.length === 0) {
+        setError('Please draw over the object you want to erase first.');
+        return;
+      }
 
-    try {
-      const originalVisibility: { [key: number]: boolean } = {};
-      
-      fabricCanvas.getObjects().forEach((obj: fabric.Object, idx: number) => {
-        originalVisibility[idx] = obj.visible || false;
-      });
+      setIsLoading(true, 'Erasing object with AI inpainting...');
+      setError(null);
 
-      fabricCanvas.getObjects().forEach((obj: fabric.Object) => {
-        if (obj.type === 'path') obj.visible = false;
-      });
-      fabricCanvas.renderAll();
-      
-      const imageURL = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
-      const imageBlob = await (await fetch(imageURL)).blob();
+      try {
+        const originalVisibility: { [key: number]: boolean } = {};
+        
+        fabricCanvas.getObjects().forEach((obj: fabric.Object, idx: number) => {
+          originalVisibility[idx] = obj.visible || false;
+        });
 
-      fabricCanvas.getObjects().forEach((obj: fabric.Object) => {
-        if (obj.type === 'path') {
-          obj.visible = true;
-          (obj as fabric.Path).set({ stroke: '#ffffff', fill: 'transparent' });
-        } else {
-          obj.visible = false;
+        fabricCanvas.getObjects().forEach((obj: fabric.Object) => {
+          if (obj.type === 'path') obj.visible = false;
+        });
+        fabricCanvas.renderAll();
+        
+        const imageURL = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+        const imageBlob = await (await fetch(imageURL)).blob();
+
+        fabricCanvas.getObjects().forEach((obj: fabric.Object) => {
+          if (obj.type === 'path') {
+            obj.visible = true;
+            (obj as fabric.Path).set({ stroke: '#ffffff', fill: 'transparent' });
+          } else {
+            obj.visible = false;
+          }
+        });
+        const originalBgColor = fabricCanvas.backgroundColor;
+        fabricCanvas.backgroundColor = '#000000';
+        fabricCanvas.renderAll();
+
+        const maskURL = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+        const maskBlob = await (await fetch(maskURL)).blob();
+
+        fabricCanvas.backgroundColor = originalBgColor || 'transparent';
+        fabricCanvas.getObjects().forEach((obj: fabric.Object, idx: number) => {
+          obj.visible = originalVisibility[idx];
+          if (obj.type === 'path') {
+            (obj as fabric.Path).set({ stroke: 'rgba(167, 139, 250, 0.4)' });
+          }
+        });
+        fabricCanvas.renderAll();
+
+        let resultURL: string;
+        try {
+          resultURL = await eraseObject(imageBlob, maskBlob, hfToken, falKey, runwareKey, inpaintingProvider);
+        } catch (err: any) {
+          console.warn('Server inpainting failed, attempting local fallback...', err);
+          setIsLoading(true, 'Server key failed. Running local fallback (free offline erase)...');
+          resultURL = await localInpaint(imageBlob, maskBlob);
         }
-      });
-      const originalBgColor = fabricCanvas.backgroundColor;
-      fabricCanvas.backgroundColor = '#000000';
-      fabricCanvas.renderAll();
 
-      const maskURL = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
-      const maskBlob = await (await fetch(maskURL)).blob();
+        paths.forEach((p: fabric.Path) => fabricCanvas.remove(p));
 
-      fabricCanvas.backgroundColor = originalBgColor || 'transparent';
-      fabricCanvas.getObjects().forEach((obj: fabric.Object, idx: number) => {
-        obj.visible = originalVisibility[idx];
-        if (obj.type === 'path') {
-          (obj as fabric.Path).set({ stroke: 'rgba(167, 139, 250, 0.4)' });
-        }
-      });
-      fabricCanvas.renderAll();
+        const newImg = await fabric.Image.fromURL(resultURL, { crossOrigin: 'anonymous' });
+        newImg.set({
+          left: imgObj.left,
+          top: imgObj.top,
+          scaleX: imgObj.scaleX,
+          scaleY: imgObj.scaleY,
+          angle: imgObj.angle,
+          selectable: true,
+          hasControls: true,
+          cornerColor: '#c084fc',
+          cornerSize: 8,
+          transparentCorners: false,
+        });
 
-      const resultURL = await eraseObject(imageBlob, maskBlob, hfToken, falKey);
+        fabricCanvas.remove(imgObj);
+        fabricCanvas.add(newImg);
+        fabricCanvas.setActiveObject(newImg);
+        fabricCanvas.renderAll();
+        saveHistoryState();
+        setIsLoading(false);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || 'Failed during object removal.');
+        setIsLoading(false);
+      }
+    } else {
+      // Photoroom Sub-Modes
+      if (!photoroomKey) {
+        setError('Photoroom API Key is required for this operation. Please configure it in settings.');
+        return;
+      }
 
-      paths.forEach((p: fabric.Path) => fabricCanvas.remove(p));
+      if (eraserSubMode === 'prompt' && !eraserPrompt.trim()) {
+        setError('Please describe what you want to erase.');
+        return;
+      }
 
-      const newImg = await fabric.Image.fromURL(resultURL, { crossOrigin: 'anonymous' });
-      newImg.set({
-        left: imgObj.left,
-        top: imgObj.top,
-        scaleX: imgObj.scaleX,
-        scaleY: imgObj.scaleY,
-        angle: imgObj.angle,
-        selectable: true,
-        hasControls: true,
-        cornerColor: '#c084fc',
-        cornerSize: 8,
-        transparentCorners: false,
-      });
+      setIsLoading(true, eraserSubMode === 'prompt' ? `Erasing "${eraserPrompt}" via Photoroom AI...` : 'Removing all text via Photoroom AI...');
+      setError(null);
 
-      fabricCanvas.remove(imgObj);
-      fabricCanvas.add(newImg);
-      fabricCanvas.setActiveObject(newImg);
-      fabricCanvas.renderAll();
-      saveHistoryState();
-      setIsLoading(false);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Failed during object removal.');
-      setIsLoading(false);
+      try {
+        // Hide paths if any are drawn
+        const originalVisibility: { [key: number]: boolean } = {};
+        fabricCanvas.getObjects().forEach((obj: fabric.Object, idx: number) => {
+          originalVisibility[idx] = obj.visible || false;
+          if (obj.type === 'path') obj.visible = false;
+        });
+        fabricCanvas.renderAll();
+
+        const imageURL = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+        const imageBlob = await (await fetch(imageURL)).blob();
+
+        // Restore original visibility for paths
+        fabricCanvas.getObjects().forEach((obj: fabric.Object, idx: number) => {
+          obj.visible = originalVisibility[idx];
+        });
+        fabricCanvas.renderAll();
+
+        const resultURL = await photoroomEdit(
+          imageBlob,
+          eraserSubMode === 'prompt' ? 'object-removal' : 'text-removal',
+          eraserSubMode === 'prompt' ? eraserPrompt : '',
+          photoroomKey
+        );
+
+        // Remove any paths
+        const paths = fabricCanvas.getObjects().filter((o: fabric.Object) => o.type === 'path') as fabric.Path[];
+        paths.forEach((p: fabric.Path) => fabricCanvas.remove(p));
+
+        const newImg = await fabric.Image.fromURL(resultURL, { crossOrigin: 'anonymous' });
+        newImg.set({
+          left: imgObj.left,
+          top: imgObj.top,
+          scaleX: imgObj.scaleX,
+          scaleY: imgObj.scaleY,
+          angle: imgObj.angle,
+          selectable: true,
+          hasControls: true,
+          cornerColor: '#c084fc',
+          cornerSize: 8,
+          transparentCorners: false,
+        });
+
+        fabricCanvas.remove(imgObj);
+        fabricCanvas.add(newImg);
+        fabricCanvas.setActiveObject(newImg);
+        fabricCanvas.renderAll();
+        saveHistoryState();
+        setIsLoading(false);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || 'Photoroom operation failed.');
+        setIsLoading(false);
+      }
     }
   };
 
@@ -341,7 +429,14 @@ export const ToolPanel: React.FC = () => {
         maskCanvas.toBlob((b) => resolve(b!), 'image/png')
       );
 
-      const resultURL = await expandImage(imageBlob, maskBlob, expandPrompt, hfToken, falKey);
+      let resultURL: string;
+      try {
+        resultURL = await expandImage(imageBlob, maskBlob, expandPrompt, hfToken, falKey, runwareKey, inpaintingProvider);
+      } catch (err: any) {
+        console.warn('Server outpainting failed, attempting local fallback...', err);
+        setIsLoading(true, 'Server key failed. Running local fallback (free offline expand)...');
+        resultURL = await localInpaint(imageBlob, maskBlob);
+      }
 
       const newImg = await fabric.Image.fromURL(resultURL, { crossOrigin: 'anonymous' });
       newImg.set({
@@ -367,6 +462,187 @@ export const ToolPanel: React.FC = () => {
     }
   };
 
+  const handleMagicGrab = async () => {
+    if (!fabricCanvas) return;
+    const activeObject = fabricCanvas.getActiveObject();
+    if (!activeObject || activeObject.type !== 'image') {
+      setError('Please select an image on the canvas first.');
+      return;
+    }
+
+    setIsLoading(true, 'Running Magic Grab: Analyzing Text (OCR)...');
+    setError(null);
+
+    try {
+      const imgObj = activeObject as fabric.Image;
+      const originalImageEl = imgObj._element as HTMLImageElement;
+      
+      const width = originalImageEl.naturalWidth || imgObj.width!;
+      const height = originalImageEl.naturalHeight || imgObj.height!;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(originalImageEl, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/png');
+
+      // 1. OCR (Tesseract)
+      const ocrResult = await Tesseract.recognize(dataUrl, 'eng');
+      const lines: any[] = (ocrResult.data as any).lines || [];
+      console.log('Magic Grab - OCR lines found:', lines.length);
+
+      // 2. Segment main subject (Background Remover)
+      setIsLoading(true, 'Running Magic Grab: Segmenting main subject...');
+      const response = await fetch(dataUrl);
+      const imgBlob = await response.blob();
+      const subjectBlob = await removeBackground(imgBlob);
+      const subjectUrl = URL.createObjectURL(subjectBlob);
+
+      const subjectImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = subjectUrl;
+      });
+
+      // 3. Create combined mask canvas for inpainting both Text & Subject
+      setIsLoading(true, 'Running Magic Grab: Preparing background mask...');
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = width;
+      maskCanvas.height = height;
+      const maskCtx = maskCanvas.getContext('2d')!;
+      maskCtx.fillStyle = '#000000';
+      maskCtx.fillRect(0, 0, width, height);
+
+      // Draw text bounding boxes on mask
+      maskCtx.fillStyle = '#ffffff';
+      lines.forEach((line: any) => {
+        if (!line.bbox) return;
+        const { x0, y0, x1, y1 } = line.bbox;
+        const padding = 6;
+        const bx = Math.max(0, x0 - padding);
+        const by = Math.max(0, y0 - padding);
+        const bw = Math.min(width - bx, (x1 - x0) + padding * 2);
+        const bh = Math.min(height - by, (y1 - y0) + padding * 2);
+        maskCtx.fillRect(bx, by, bw, bh);
+      });
+
+      // Draw subject transparency mask
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = width;
+      tempCanvas.height = height;
+      const tempCtx = tempCanvas.getContext('2d')!;
+      tempCtx.drawImage(subjectImg, 0, 0, width, height);
+      const tempImgData = tempCtx.getImageData(0, 0, width, height);
+
+      const maskImgData = maskCtx.getImageData(0, 0, width, height);
+      for (let i = 0; i < tempImgData.data.length; i += 4) {
+        const alpha = tempImgData.data[i + 3];
+        if (alpha > 30) {
+          maskImgData.data[i] = 255;
+          maskImgData.data[i + 1] = 255;
+          maskImgData.data[i + 2] = 255;
+          maskImgData.data[i + 3] = 255;
+        }
+      }
+      maskCtx.putImageData(maskImgData, 0, 0);
+
+      // 4. Inpaint the background
+      setIsLoading(true, 'Running Magic Grab: Inpainting background...');
+      const maskBlob = await new Promise<Blob>((resolve) => 
+        maskCanvas.toBlob((b) => resolve(b!), 'image/png')
+      );
+
+      let bgResultUrl: string;
+      try {
+        bgResultUrl = await eraseObject(imgBlob, maskBlob, hfToken, falKey, runwareKey, inpaintingProvider);
+      } catch (err) {
+        console.warn('Server inpainting failed during Magic Grab, using local fallback...', err);
+        bgResultUrl = await localInpaint(imgBlob, maskBlob);
+      }
+
+      // 5. Replace on canvas
+      setIsLoading(true, 'Running Magic Grab: Rendering editable components...');
+      const bgImg = await fabric.Image.fromURL(bgResultUrl, { crossOrigin: 'anonymous' });
+      bgImg.set({
+        left: imgObj.left,
+        top: imgObj.top,
+        scaleX: imgObj.scaleX,
+        scaleY: imgObj.scaleY,
+        angle: imgObj.angle,
+        selectable: true,
+        hasControls: true,
+        cornerColor: '#c084fc',
+        cornerSize: 8,
+        transparentCorners: false,
+      });
+
+      const fgImg = await fabric.Image.fromURL(subjectUrl, { crossOrigin: 'anonymous' });
+      fgImg.set({
+        left: imgObj.left,
+        top: imgObj.top,
+        scaleX: imgObj.scaleX,
+        scaleY: imgObj.scaleY,
+        angle: imgObj.angle,
+        selectable: true,
+        hasControls: true,
+        cornerColor: '#c084fc',
+        cornerSize: 8,
+        transparentCorners: false,
+      });
+
+      fabricCanvas.remove(imgObj);
+      fabricCanvas.add(bgImg);
+      fabricCanvas.add(fgImg);
+
+      // Add IText objects
+      const scaleX = imgObj.scaleX!;
+      const scaleY = imgObj.scaleY!;
+
+      const getSampledColor = (x: number, y: number) => {
+        try {
+          const pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+          return `rgb(${pixel[0]}, ${pixel[1]}, ${pixel[2]})`;
+        } catch {
+          return '#ffffff';
+        }
+      };
+
+      for (const line of lines) {
+        if (!line.bbox || !line.text.trim()) continue;
+        const { x0, y0, x1, y1 } = line.bbox;
+        const cx = x0 + (x1 - x0) / 2;
+        const cy = y0 + (y1 - y0) / 2;
+        const sampledColor = getSampledColor(cx, cy);
+
+        const fabricText = new fabric.IText(line.text.trim(), {
+          left: imgObj.left! + x0 * scaleX,
+          top: imgObj.top! + y0 * scaleY,
+          fontSize: (y1 - y0) * scaleY * 0.85,
+          fill: sampledColor,
+          fontFamily: 'sans-serif',
+          fontWeight: 'bold',
+          selectable: true,
+          hasControls: true,
+          cornerColor: '#c084fc',
+          cornerSize: 8,
+          transparentCorners: false,
+        });
+        fabricCanvas.add(fabricText);
+      }
+
+      fabricCanvas.renderAll();
+      saveHistoryState();
+      setIsLoading(false);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Magic Grab failed.');
+      setIsLoading(false);
+    }
+  };
+
   const handleClearCanvas = () => {
     if (!fabricCanvas) return;
     fabricCanvas.clear();
@@ -382,7 +658,7 @@ export const ToolPanel: React.FC = () => {
   };
 
   return (
-    <div className="w-[310px] bg-[#0c0c0e]/80 backdrop-blur-xl flex flex-col h-full border-r border-white/5 z-10 shrink-0 select-none">
+    <div className="w-[310px] bg-[#12112d]/80 backdrop-blur-xl flex flex-col h-full border-r border-white/5 z-10 shrink-0 select-none">
       
       {/* Panel Top Title & Back arrow */}
       <div className="p-4.5 border-b border-white/5 flex items-center gap-3 bg-white/[0.01]">
@@ -400,6 +676,7 @@ export const ToolPanel: React.FC = () => {
           {activeTool === 'magic-write' && 'Magic Write'}
           {activeTool === 'eraser' && 'Pixel Eraser'}
           {activeTool === 'expand' && 'Magic Expand'}
+          {activeTool === 'magic-grab' && 'Magic Grab'}
         </span>
       </div>
 
@@ -543,81 +820,145 @@ export const ToolPanel: React.FC = () => {
               {/* MAGIC ERASER (PIXEL ERASER) PANEL */}
               {activeTool === 'eraser' && (
                 <div className="space-y-5">
-                  {/* Brush Type Tabs */}
+                  {/* Eraser Method Tabs */}
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">Brush Type</label>
-                    <div className="grid grid-cols-2 gap-2 bg-[#16161a] p-1.5 rounded-xl border border-white/5">
+                    <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">Erase Method</label>
+                    <div className="grid grid-cols-3 gap-1 bg-[#16161a] p-1.5 rounded-xl border border-white/5">
                       <button
-                        onClick={() => setEraserMode('erase')}
-                        className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
-                          eraserMode === 'erase'
-                            ? 'bg-[#7c3aed] text-white shadow-lg shadow-violet-500/20'
+                        onClick={() => setEraserSubMode('brush')}
+                        className={`py-2 rounded-lg text-[10px] font-semibold transition-all duration-300 cursor-pointer ${
+                          eraserSubMode === 'brush'
+                            ? 'bg-[#7c3aed] text-white shadow-lg'
                             : 'text-zinc-450 hover:text-white'
                         }`}
                       >
-                        <Eraser className="h-3.5 w-3.5" />
-                        <span>Erase</span>
+                        Brush
                       </button>
                       <button
-                        onClick={() => setEraserMode('restore')}
-                        className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
-                          eraserMode === 'restore'
-                            ? 'bg-[#7c3aed] text-white shadow-lg shadow-violet-500/20'
+                        onClick={() => setEraserSubMode('prompt')}
+                        className={`py-2 rounded-lg text-[10px] font-semibold transition-all duration-300 cursor-pointer ${
+                          eraserSubMode === 'prompt'
+                            ? 'bg-[#7c3aed] text-white shadow-lg'
                             : 'text-zinc-450 hover:text-white'
                         }`}
                       >
-                        <PenTool className="h-3.5 w-3.5" />
-                        <span>Restore</span>
+                        By Prompt
+                      </button>
+                      <button
+                        onClick={() => setEraserSubMode('text-auto')}
+                        className={`py-2 rounded-lg text-[10px] font-semibold transition-all duration-300 cursor-pointer ${
+                          eraserSubMode === 'text-auto'
+                            ? 'bg-[#7c3aed] text-white shadow-lg'
+                            : 'text-zinc-450 hover:text-white'
+                        }`}
+                      >
+                        Remove Text
                       </button>
                     </div>
                   </div>
 
-                  {/* Size slider */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-xs text-zinc-400 font-semibold mb-1">
-                      <span>Brush Size</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min="5"
-                        max="100"
-                        value={brushSize}
-                        onChange={(e) => setBrushSize(Number(e.target.value))}
-                        className="flex-1 cursor-pointer"
-                      />
-                      <input
-                        type="number"
-                        min="5"
-                        max="100"
-                        value={brushSize}
-                        onChange={(e) => setBrushSize(Number(e.target.value))}
-                        className="w-12 text-center bg-[#16161a] border border-white/5 rounded-lg text-xs py-1.5 text-zinc-200 focus:outline-none"
-                      />
-                    </div>
-                  </div>
+                  {eraserSubMode === 'brush' && (
+                    <>
+                      {/* Brush Type Tabs */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">Brush Type</label>
+                        <div className="grid grid-cols-2 gap-2 bg-[#16161a] p-1.5 rounded-xl border border-white/5">
+                          <button
+                            onClick={() => setEraserMode('erase')}
+                            className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
+                              eraserMode === 'erase'
+                                ? 'bg-[#7c3aed] text-white shadow-lg shadow-violet-500/20'
+                                : 'text-zinc-450 hover:text-white'
+                            }`}
+                          >
+                            <Eraser className="h-3.5 w-3.5" />
+                            <span>Erase</span>
+                          </button>
+                          <button
+                            onClick={() => setEraserMode('restore')}
+                            className={`py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all duration-300 cursor-pointer ${
+                              eraserMode === 'restore'
+                                ? 'bg-[#7c3aed] text-white shadow-lg shadow-violet-500/20'
+                                : 'text-zinc-450 hover:text-white'
+                            }`}
+                          >
+                            <PenTool className="h-3.5 w-3.5" />
+                            <span>Restore</span>
+                          </button>
+                        </div>
+                      </div>
 
-                  {/* Show Original Toggle */}
-                  <div className="flex items-center justify-between py-3 border-t border-b border-white/5">
-                    <span className="text-xs text-zinc-400 font-semibold">Show original</span>
-                    <button
-                      onClick={() => setShowOriginal(!showOriginal)}
-                      className={`w-9 h-5 rounded-full p-0.5 transition-all duration-300 ${
-                        showOriginal ? 'bg-[#7c3aed]' : 'bg-zinc-700'
-                      }`}
-                    >
-                      <div className={`w-4 h-4 rounded-full bg-white transition-all duration-300 transform ${
-                        showOriginal ? 'translate-x-4' : 'translate-x-0'
-                      }`}></div>
-                    </button>
-                  </div>
+                      {/* Size slider */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center text-xs text-zinc-400 font-semibold mb-1">
+                          <span>Brush Size</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="range"
+                            min="5"
+                            max="100"
+                            value={brushSize}
+                            onChange={(e) => setBrushSize(Number(e.target.value))}
+                            className="flex-1 cursor-pointer"
+                          />
+                          <input
+                            type="number"
+                            min="5"
+                            max="100"
+                            value={brushSize}
+                            onChange={(e) => setBrushSize(Number(e.target.value))}
+                            className="w-12 text-center bg-[#16161a] border border-white/5 rounded-lg text-xs py-1.5 text-zinc-200 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Show Original Toggle */}
+                      <div className="flex items-center justify-between py-3 border-t border-b border-white/5">
+                        <span className="text-xs text-zinc-400 font-semibold">Show original</span>
+                        <button
+                          onClick={() => setShowOriginal(!showOriginal)}
+                          className={`w-9 h-5 rounded-full p-0.5 transition-all duration-300 ${
+                            showOriginal ? 'bg-[#7c3aed]' : 'bg-zinc-700'
+                          }`}
+                        >
+                          <div className={`w-4 h-4 rounded-full bg-white transition-all duration-300 transform ${
+                            showOriginal ? 'translate-x-4' : 'translate-x-0'
+                          }`}></div>
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {eraserSubMode === 'prompt' && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">What to erase?</label>
+                      <textarea
+                        value={eraserPrompt}
+                        onChange={(e) => setEraserPrompt(e.target.value)}
+                        placeholder="e.g. remove yellow car, power lines, scratch on table, person on right..."
+                        rows={3}
+                        className="w-full bg-[#16161a] border border-white/5 rounded-xl p-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-purple-500 resize-none font-sans"
+                      />
+                    </div>
+                  )}
+
+                  {eraserSubMode === 'text-auto' && (
+                    <p className="text-xs text-zinc-400 leading-relaxed">
+                      Removes all text/writings (signs, logos, watermarks, stickers) present anywhere in the image. Powered by Photoroom AI.
+                    </p>
+                  )}
 
                   <button
                     onClick={handleMagicEraser}
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl neon-glow-btn text-white font-bold text-xs cursor-pointer"
                   >
                     <Eraser className="h-4 w-4" />
-                    <span>ERASE OBJECT</span>
+                    <span>
+                      {eraserSubMode === 'brush' && 'ERASE OBJECT'}
+                      {eraserSubMode === 'prompt' && 'ERASE BY PROMPT'}
+                      {eraserSubMode === 'text-auto' && 'REMOVE ALL TEXT'}
+                    </span>
                   </button>
                 </div>
               )}
@@ -662,6 +1003,22 @@ export const ToolPanel: React.FC = () => {
                   >
                     <Maximize2 className="h-4 w-4" />
                     <span>MAGIC EXPAND</span>
+                  </button>
+                </div>
+              )}
+
+              {/* MAGIC GRAB PANEL */}
+              {activeTool === 'magic-grab' && (
+                <div className="space-y-4">
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Transform any flat image on the canvas into fully editable layers. Text will become editable, and the main subject will be separated into a draggable layer.
+                  </p>
+                  <button
+                    onClick={handleMagicGrab}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl neon-glow-btn text-white font-bold text-xs cursor-pointer"
+                  >
+                    <Hand className="h-4 w-4" />
+                    <span>GRAB ELEMENTS</span>
                   </button>
                 </div>
               )}
