@@ -11,7 +11,6 @@ import {
 } from '../services/ai';
 import { removeBackground } from '@imgly/background-removal';
 import * as fabric from 'fabric';
-import Tesseract from 'tesseract.js';
 import { 
   Sparkles, 
   PenTool, 
@@ -21,8 +20,7 @@ import {
   Loader2, 
   ArrowLeft,
   RotateCcw,
-  Sparkle,
-  Hand
+  Sparkle
 } from 'lucide-react';
 
 export const ToolPanel: React.FC = () => {
@@ -42,9 +40,7 @@ export const ToolPanel: React.FC = () => {
     setBrushSize,
     setError,
     error,
-    saveHistoryState,
-    workspaceBg,
-    setWorkspaceBg
+    saveHistoryState
   } = useStore();
 
   // Text-to-Image states
@@ -650,7 +646,7 @@ export const ToolPanel: React.FC = () => {
     }
   };
 
-  const handleMagicGrab = async () => {
+  /* const handleMagicGrab = async () => {
     if (!fabricCanvas) return;
     const activeObject = fabricCanvas.getActiveObject();
     if (!activeObject || activeObject.type !== 'image') {
@@ -837,7 +833,7 @@ export const ToolPanel: React.FC = () => {
       setError(err.message || 'Magic Grab failed.');
       setIsLoading(false);
     }
-  };
+  }; */
 
   const handleClearCanvas = () => {
     if (!fabricCanvas) return;
@@ -854,7 +850,7 @@ export const ToolPanel: React.FC = () => {
   };
 
   return (
-    <div className="w-[310px] bg-[#12112d]/80 backdrop-blur-xl flex flex-col h-full border-r border-white/5 z-10 shrink-0 select-none">
+    <div className="w-[310px] bg-[#11141a]/80 backdrop-blur-xl flex flex-col h-full border-r border-white/5 z-10 shrink-0 select-none">
       
       {/* Panel Top Title & Back arrow */}
       <div className="p-4.5 border-b border-white/5 flex items-center gap-3 bg-white/[0.01]">
@@ -917,13 +913,12 @@ export const ToolPanel: React.FC = () => {
                     </button>
                   </div>
 
-                  {/* Workspace Background Color Changer */}
+                  {/* Workspace Background Color Changer commented out
                   <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col gap-3">
                     <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Workspace Background</span>
                     
                     <div className="flex items-center justify-between gap-2.5">
                       <div className="flex gap-1.5">
-                        {/* Preset Colors */}
                         {[
                            { name: 'Black', value: '#000000' },
                            { name: 'White', value: '#ffffff' },
@@ -944,7 +939,6 @@ export const ToolPanel: React.FC = () => {
                         ))}
                       </div>
                       
-                      {/* Custom Color Input */}
                       <div className="flex items-center gap-1.5 bg-[#16161a] border border-white/5 rounded-lg px-2 py-1">
                         <input
                           type="color"
@@ -956,6 +950,7 @@ export const ToolPanel: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                  */}
                 </div>
               )}
 
@@ -1243,7 +1238,7 @@ export const ToolPanel: React.FC = () => {
                 </div>
               )}
 
-              {/* MAGIC GRAB PANEL */}
+              {/* MAGIC GRAB PANEL commented out
               {activeTool === 'magic-grab' && (
                 <div className="space-y-4">
                   <p className="text-xs text-zinc-400 leading-relaxed">
@@ -1258,6 +1253,7 @@ export const ToolPanel: React.FC = () => {
                   </button>
                 </div>
               )}
+              */}
             </>
           )}
         </div>

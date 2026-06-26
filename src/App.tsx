@@ -170,7 +170,7 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#0a091e] text-[#f1f5f9] overflow-hidden select-none relative mesh-gradient">
+    <div className="flex flex-col h-screen w-screen bg-[#0b0d10] text-[#f1f5f9] overflow-hidden select-none relative mesh-gradient">
       {/* Dynamic ambient glowing spheres in background */}
       <div className="absolute top-[20%] left-[25%] w-[350px] h-[350px] bg-violet-600/10 rounded-full blur-[100px] pointer-events-none"></div>
       <div className="absolute bottom-[20%] right-[25%] w-[400px] h-[400px] bg-fuchsia-600/800 bg-opacity-[0.05] rounded-full blur-[120px] pointer-events-none"></div>
@@ -213,10 +213,10 @@ function App() {
       {/* Settings Modal - Rendered outside transformed wrapper to prevent cut-off bugs */}
       {showSettings && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[100] flex items-center justify-center">
-          <div className="bg-[#12112d]/90 border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in duration-200">
+          <div className="bg-[#11141a]/90 border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in duration-200">
             <div className="flex items-center justify-between border-b border-white/5 pb-3.5 mb-4">
               <div className="flex items-center gap-2.5">
-                <Key className="h-4 w-4 text-[#c084fc]" />
+                <Key className="h-4 w-4 text-[#00f2fe]" />
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider">Configure API Credentials</h3>
               </div>
               <button 

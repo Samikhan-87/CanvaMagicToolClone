@@ -2,7 +2,7 @@
 
 @layer base {
   body {
-    @apply bg-[#0a091e] text-[#f1f5f9] overflow-hidden h-screen w-screen select-none font-sans antialiased;
+    @apply bg-[#0b0d10] text-[#f1f5f9] overflow-hidden h-screen w-screen select-none font-sans antialiased;
     font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
   }
   
@@ -12,7 +12,7 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: rgba(18, 17, 43, 0.6);
+    background: rgba(17, 20, 26, 0.6);
   }
   ::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
@@ -26,7 +26,7 @@
 
 /* Background animated mesh gradient */
 .mesh-gradient {
-  background: linear-gradient(135deg, #62faff 10%, #d00bd3 50%, #ff00fb 20%);
+  background: linear-gradient(135deg, #00f2fe 10%, #4facfe 50%, #000000 90%);
 }
 
 /* Checkered background for image editing */
@@ -43,7 +43,7 @@
 
 /* Glassmorphism details */
 .glass-card {
-  background: rgba(22, 21, 53, 0.75);
+  background: rgba(17, 20, 26, 0.75);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -53,22 +53,22 @@
 }
 .glass-card-hover:hover {
   background: rgba(20, 20, 26, 0.85);
-  border-color: rgba(167, 139, 250, 0.2);
-  box-shadow: 0 0 25px rgba(139, 92, 246, 0.1);
+  border-color: rgba(0, 242, 254, 0.2);
+  box-shadow: 0 0 25px rgba(79, 172, 254, 0.1);
 }
 
 /* Neon glow buttons */
 .neon-glow-btn {
-  background: linear-gradient(135deg, #7c3aed 0%, #d946ef 50%, #6366f1 100%);
+  background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
   background-size: 200% 200%;
   animation: gradientShift 6s ease infinite;
-  box-shadow: 0 0 15px rgba(139, 92, 246, 0.3), 0 0 30px rgba(217, 70, 239, 0.15);
+  box-shadow: 0 0 15px rgba(79, 172, 254, 0.3), 0 0 30px rgba(0, 242, 254, 0.15);
   border: 1px solid rgba(255, 255, 255, 0.15);
   transition: all 0.2s ease;
 }
 .neon-glow-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 0 20px rgba(139, 92, 246, 0.45), 0 0 40px rgba(217, 70, 239, 0.25);
+  box-shadow: 0 0 20px rgba(79, 172, 254, 0.45), 0 0 40px rgba(0, 242, 254, 0.25);
 }
 .neon-glow-btn:active {
   transform: translateY(1px);
@@ -99,8 +99,8 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   background: #ffffff;
   cursor: pointer;
-  box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
-  border: 2px solid #7c3aed;
+  box-shadow: 0 0 8px rgba(0, 242, 254, 0.6);
+  border: 2px solid #00f2fe;
   transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
