@@ -182,14 +182,66 @@ const runwareInpainting = async (
   return URL.createObjectURL(resBlob);
 };
 
+const hfInpainting = async (
+  imageBlob: Blob,
+  maskBlob: Blob,
+  prompt: string,
+  hfToken: string
+): Promise<string> => {
+  console.log('Initiating Hugging Face inpainting workflow...');
+  const imageBase64 = await blobToBase64(imageBlob);
+  const maskBase64 = await blobToBase64(maskBlob);
+
+  const cleanImageBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+  const cleanMaskBase64 = maskBase64.includes(',') ? maskBase64.split(',')[1] : maskBase64;
+
+  const response = await fetch(
+    'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-inpainting',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${hfToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        inputs: {
+          image: cleanImageBase64,
+          mask: cleanMaskBase64,
+          prompt: prompt,
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Hugging Face serverless inpainting failed: ${response.statusText || errText}`);
+  }
+
+  const resBlob = await response.blob();
+  return URL.createObjectURL(resBlob);
+};
+
 export const eraseObject = async (
   imageBlob: Blob,
   maskBlob: Blob,
-  _hfToken: string,
+  hfToken: string,
   falKey?: string,
   runwareKey?: string,
-  inpaintingProvider: 'fal' | 'runware' = 'fal'
+  inpaintingProvider: 'fal' | 'runware' | 'huggingface' = 'fal'
 ): Promise<string> => {
+  if (inpaintingProvider === 'huggingface') {
+    if (!hfToken) {
+      throw new Error('Hugging Face API Token is required for HuggingFace Eraser. Please click the Settings gear icon in the top-right corner to configure it.');
+    }
+    return hfInpainting(
+      imageBlob,
+      maskBlob,
+      'seamlessly erase the masked object, fill with background, highly detailed, realistic, high quality',
+      hfToken
+    );
+  }
+
   if (inpaintingProvider === 'runware') {
     if (!runwareKey) {
       throw new Error('Runware API Key is required for Pixel Eraser. Please click the Settings gear icon in the top-right corner to configure it.');
@@ -244,6 +296,107 @@ export const eraseObject = async (
   }
 };
 
+const gradioOutpaint = async (
+  imageBlob: Blob,
+  targetW: number,
+  targetH: number,
+  prompt: string
+): Promise<string> => {
+  console.log('Initiating Gradio outpainting workflow on fffiloni/diffusers-image-outpaint...');
+  const spaceUrl = 'https://fffiloni-diffusers-image-outpaint.hf.space';
+  
+  // 1. Upload file
+  const formData = new FormData();
+  formData.append('files', imageBlob, 'image.png');
+  
+  const uploadRes = await fetch(`${spaceUrl}/gradio_api/upload`, {
+    method: 'POST',
+    body: formData
+  });
+  
+  if (!uploadRes.ok) {
+    throw new Error(`Gradio upload failed: ${uploadRes.statusText}`);
+  }
+  
+  const uploadJson = await uploadRes.json();
+  const uploadedPath = uploadJson[0];
+  
+  // 2. Call the infer endpoint
+  const inferRes = await fetch(`${spaceUrl}/gradio_api/call/v2/infer`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      image: { path: uploadedPath, meta: { _type: 'gradio.FileData' } },
+      width: targetW,
+      height: targetH,
+      overlap_percentage: 10,
+      num_inference_steps: 8,
+      resize_option: 'Full',
+      custom_resize_percentage: 100,
+      prompt_input: prompt,
+      alignment: 'Middle',
+      overlap_left: true,
+      overlap_right: true,
+      overlap_top: true,
+      overlap_bottom: true
+    })
+  });
+  
+  if (!inferRes.ok) {
+    throw new Error(`Gradio infer call failed: ${inferRes.statusText}`);
+  }
+  
+  const { event_id } = await inferRes.json();
+  
+  // 3. Poll SSE
+  const statusUrl = `${spaceUrl}/gradio_api/call/infer/${event_id}`;
+  const response = await fetch(statusUrl);
+  
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('Failed to read status stream from Gradio space.');
+  }
+  
+  const decoder = new TextDecoder('utf-8');
+  let resultUrl = '';
+  let finished = false;
+  let bufferStr = '';
+  
+  while (!finished) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    bufferStr += decoder.decode(value, { stream: true });
+    
+    const lines = bufferStr.split('\n');
+    bufferStr = lines.pop() || '';
+    
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const dataContent = line.slice(6);
+        try {
+          const dataJson = JSON.parse(dataContent);
+          if (Array.isArray(dataJson) && dataJson[0] && dataJson[0][0]) {
+            resultUrl = dataJson[0][0].url;
+            finished = true;
+          }
+        } catch (e) {
+          // not JSON
+        }
+      }
+    }
+  }
+  
+  if (!resultUrl) {
+    throw new Error('Gradio outpainting complete but no result URL was returned.');
+  }
+  
+  const imageRes = await fetch(resultUrl);
+  const resBlob = await imageRes.blob();
+  return URL.createObjectURL(resBlob);
+};
+
 export const expandImage = async (
   imageBlob: Blob,
   maskBlob: Blob,
@@ -251,8 +404,31 @@ export const expandImage = async (
   _hfToken: string,
   falKey?: string,
   runwareKey?: string,
-  inpaintingProvider: 'fal' | 'runware' = 'fal'
+  inpaintingProvider: 'fal' | 'runware' | 'huggingface' = 'fal',
+  targetW?: number,
+  targetH?: number,
+  originalBlob?: Blob
 ): Promise<string> => {
+  const DEFAULT_OUTPAINT_PROMPT = 
+    "You are an AI specialized in Generative Outpainting. " +
+    "Expand the boundaries of the provided image without stretching, distorting, or blurring the original content. " +
+    "Execution rules: " +
+    "1. DO NOT apply a blur effect or vignette to the newly expanded areas. " +
+    "2. DO NOT stretch or upscale the original pixels to fill the new dimensions. " +
+    "3. Analyze the texture, lighting, colors, and subject matter of the original image. " +
+    "4. Intelligently generate new, sharp, and seamless details to fill the blank outer space. " +
+    "5. The extended background must logically match the original environment. " +
+    "6. Ensure the transition between the original image border and the newly generated pixels is completely invisible and sharp.";
+
+  if (inpaintingProvider === 'huggingface') {
+    return gradioOutpaint(
+      originalBlob || imageBlob,
+      targetW || 768,
+      targetH || 768,
+      prompt || DEFAULT_OUTPAINT_PROMPT
+    );
+  }
+
   if (inpaintingProvider === 'runware') {
     if (!runwareKey) {
       throw new Error('Runware API Key is required for Magic Expand. Please click the Settings gear icon in the top-right corner to configure it.');
@@ -260,7 +436,7 @@ export const expandImage = async (
     return runwareInpainting(
       imageBlob,
       maskBlob,
-      prompt || 'seamlessly fill the expanded borders to match the image, continuous background',
+      prompt || DEFAULT_OUTPAINT_PROMPT,
       runwareKey
     );
   }
@@ -281,7 +457,7 @@ export const expandImage = async (
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        prompt: prompt || 'seamlessly fill the expanded borders to match the image, continuous background',
+        prompt: prompt || DEFAULT_OUTPAINT_PROMPT,
         image_url: imageBase64,
         mask_url: maskBase64
       })
@@ -647,6 +823,8 @@ export const photoroomEdit = async (
   const formData = new FormData();
   formData.append('imageFile', imageBlob, 'image.png');
   formData.append('removeBackground', 'false');
+  formData.append('outputSize', 'originalImage');
+  formData.append('padding', '0');
 
   if (mode === 'text-removal') {
     formData.append('textRemoval.mode', 'ai.all');
@@ -670,4 +848,78 @@ export const photoroomEdit = async (
 
   const resultBlob = await response.blob();
   return URL.createObjectURL(resultBlob);
+};
+
+export interface TrimResult {
+  url: string;
+  cropX: number;
+  cropY: number;
+  cropW: number;
+  cropH: number;
+}
+
+export const trimTransparentBorders = (imgEl: HTMLImageElement): Promise<TrimResult> => {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = imgEl.width || imgEl.naturalWidth;
+    canvas.height = imgEl.height || imgEl.naturalHeight;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(imgEl, 0, 0);
+
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+    let found = false;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const alpha = imgData.data[(y * width + x) * 4 + 3];
+        if (alpha > 15) { // Threshold for transparency
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+          found = true;
+        }
+      }
+    }
+
+    if (!found) {
+      resolve({
+        url: imgEl.src,
+        cropX: 0,
+        cropY: 0,
+        cropW: width,
+        cropH: height
+      });
+      return;
+    }
+
+    // Add 2px padding for anti-aliasing safety
+    const cropX = Math.max(0, minX - 2);
+    const cropY = Math.max(0, minY - 2);
+    const cropW = Math.min(width - cropX, (maxX - minX) + 4);
+    const cropH = Math.min(height - cropY, (maxY - minY) + 4);
+
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = cropW;
+    cropCanvas.height = cropH;
+    const cropCtx = cropCanvas.getContext('2d')!;
+    cropCtx.drawImage(imgEl, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+    cropCanvas.toBlob((blob) => {
+      resolve({
+        url: URL.createObjectURL(blob!),
+        cropX,
+        cropY,
+        cropW,
+        cropH
+      });
+    }, 'image/png');
+  });
 };

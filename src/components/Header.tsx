@@ -14,8 +14,8 @@ import {
 
 interface HeaderProps {
   onImageUpload: (file: File) => void;
-  onExportPNG: () => void;
-  onExportPDF: () => void;
+  onExportPNG: (fileName: string) => void;
+  onExportPDF: (fileName: string) => void;
   onOpenSettings: () => void;
 }
 
@@ -114,17 +114,17 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Save/Export PNG Button */}
         <button
-          onClick={onExportPNG}
+          onClick={() => onExportPNG(docName)}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-850 text-xs font-bold uppercase tracking-wider text-white transition-all cursor-pointer border border-white/5 shadow-md"
           title="Export PNG"
         >
-          <Download className="h-4 w-4 text-zinc-400" />
+          <Download className="h-4 w-4 text-zinc-450" />
           <span>Export PNG</span>
         </button>
 
         {/* Save/Export PDF Button */}
         <button
-          onClick={onExportPDF}
+          onClick={() => onExportPDF(docName)}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-xs font-bold uppercase tracking-wider text-white transition-all cursor-pointer shadow-lg shadow-violet-500/20"
         >
           <Check className="h-4 w-4" />

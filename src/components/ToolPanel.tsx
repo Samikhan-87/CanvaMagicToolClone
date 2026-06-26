@@ -6,7 +6,8 @@ import {
   eraseObject, 
   expandImage,
   localInpaint,
-  photoroomEdit
+  photoroomEdit,
+  trimTransparentBorders
 } from '../services/ai';
 import { removeBackground } from '@imgly/background-removal';
 import * as fabric from 'fabric';
@@ -41,7 +42,9 @@ export const ToolPanel: React.FC = () => {
     setBrushSize,
     setError,
     error,
-    saveHistoryState
+    saveHistoryState,
+    workspaceBg,
+    setWorkspaceBg
   } = useStore();
 
   // Text-to-Image states
@@ -66,15 +69,22 @@ export const ToolPanel: React.FC = () => {
     if (!fabricCanvas) return;
     try {
       const img = await fabric.Image.fromURL(url, { crossOrigin: 'anonymous' });
-      const scaleX = (fabricCanvas.width! - 120) / img.width!;
-      const scaleY = (fabricCanvas.height! - 120) / img.height!;
-      const scale = Math.min(scaleX, scaleY, 1);
+      const imgW = img.width || 800;
+      const imgH = img.height || 600;
+
+      const canvasW = fabricCanvas.width || 800;
+      const canvasH = fabricCanvas.height || 600;
       
+      let scale = 1;
+      if (imgW > canvasW || imgH > canvasH) {
+        const scaleX = canvasW / imgW;
+        const scaleY = canvasH / imgH;
+        scale = Math.min(scaleX, scaleY) * 0.8;
+      }
+
       img.set({
         scaleX: scale,
         scaleY: scale,
-        left: (fabricCanvas.width! - img.width! * scale) / 2,
-        top: (fabricCanvas.height! - img.height! * scale) / 2,
         selectable: true,
         hasControls: true,
         cornerColor: '#c084fc',
@@ -82,6 +92,7 @@ export const ToolPanel: React.FC = () => {
         transparentCorners: false,
       });
       fabricCanvas.add(img);
+      fabricCanvas.centerObject(img);
       fabricCanvas.setActiveObject(img);
       fabricCanvas.renderAll();
       saveHistoryState();
@@ -104,17 +115,45 @@ export const ToolPanel: React.FC = () => {
 
     try {
       const imgObj = activeObject as fabric.Image;
-      const dataUrl = imgObj.toDataURL({ format: 'png', multiplier: 1 });
+      const originalImageEl = imgObj._element as HTMLImageElement;
+      
+      const width = originalImageEl.naturalWidth || imgObj.width!;
+      const height = originalImageEl.naturalHeight || imgObj.height!;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(originalImageEl, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/png');
       const response = await fetch(dataUrl);
       const blob = await response.blob();
       
       const processedBlob = await removeBackground(blob);
       const processedUrl = URL.createObjectURL(processedBlob);
 
-      const newImg = await fabric.Image.fromURL(processedUrl, { crossOrigin: 'anonymous' });
+      // Load processed image to get transparent borders trimmed
+      const tempImg = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = processedUrl;
+      });
+
+      const trimResult = await trimTransparentBorders(tempImg);
+
+      const newImg = await fabric.Image.fromURL(trimResult.url, { crossOrigin: 'anonymous' });
+      
+      const rad = (imgObj.angle || 0) * Math.PI / 180;
+      const dx = trimResult.cropX * (imgObj.scaleX || 1);
+      const dy = trimResult.cropY * (imgObj.scaleY || 1);
+      const newLeft = imgObj.left! + (dx * Math.cos(rad) - dy * Math.sin(rad));
+      const newTop = imgObj.top! + (dx * Math.sin(rad) + dy * Math.cos(rad));
+
       newImg.set({
-        left: imgObj.left,
-        top: imgObj.top,
+        left: newLeft,
+        top: newTop,
         scaleX: imgObj.scaleX,
         scaleY: imgObj.scaleY,
         angle: imgObj.angle,
@@ -216,6 +255,7 @@ export const ToolPanel: React.FC = () => {
       setError(null);
 
       try {
+        const rect = imgObj.getBoundingRect();
         const originalVisibility: { [key: number]: boolean } = {};
         
         fabricCanvas.getObjects().forEach((obj: fabric.Object, idx: number) => {
@@ -227,7 +267,14 @@ export const ToolPanel: React.FC = () => {
         });
         fabricCanvas.renderAll();
         
-        const imageURL = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+        const imageURL = fabricCanvas.toDataURL({ 
+          format: 'png',
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          multiplier: 1
+        });
         const imageBlob = await (await fetch(imageURL)).blob();
 
         fabricCanvas.getObjects().forEach((obj: fabric.Object) => {
@@ -242,7 +289,14 @@ export const ToolPanel: React.FC = () => {
         fabricCanvas.backgroundColor = '#000000';
         fabricCanvas.renderAll();
 
-        const maskURL = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+        const maskURL = fabricCanvas.toDataURL({ 
+          format: 'png',
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          multiplier: 1
+        });
         const maskBlob = await (await fetch(maskURL)).blob();
 
         fabricCanvas.backgroundColor = originalBgColor || 'transparent';
@@ -263,15 +317,91 @@ export const ToolPanel: React.FC = () => {
           resultURL = await localInpaint(imageBlob, maskBlob);
         }
 
+        // Perform mask compositing to preserve 100% of original pixels outside the mask
+        const compositeUrl = await new Promise<string>((resolve, reject) => {
+          const origImg = new Image();
+          const maskImg = new Image();
+          const inpaintedImg = new Image();
+
+          let loadedCount = 0;
+          const onImgLoad = () => {
+            loadedCount++;
+            if (loadedCount === 3) {
+              try {
+                const compCanvas = document.createElement('canvas');
+                compCanvas.width = rect.width;
+                compCanvas.height = rect.height;
+                const compCtx = compCanvas.getContext('2d')!;
+
+                // 1. Draw original image
+                compCtx.drawImage(origImg, 0, 0, rect.width, rect.height);
+
+                // 2. Create masked inpaint canvas
+                const maskCanvas = document.createElement('canvas');
+                maskCanvas.width = rect.width;
+                maskCanvas.height = rect.height;
+                const maskCtx = maskCanvas.getContext('2d')!;
+
+                // Draw mask
+                maskCtx.drawImage(maskImg, 0, 0, rect.width, rect.height);
+                
+                // We want to keep only the parts of inpainted image that overlap with the white mask.
+                const maskData = maskCtx.getImageData(0, 0, rect.width, rect.height);
+                for (let i = 0; i < maskData.data.length; i += 4) {
+                  const r = maskData.data[i];
+                  const g = maskData.data[i + 1];
+                  const b = maskData.data[i + 2];
+                  // If it is black or dark (not white), make it fully transparent
+                  if (r < 50 && g < 50 && b < 50) {
+                    maskData.data[i + 3] = 0;
+                  }
+                }
+                maskCtx.putImageData(maskData, 0, 0);
+
+                // Now source-in the inpainted image
+                maskCtx.globalCompositeOperation = 'source-in';
+                maskCtx.drawImage(inpaintedImg, 0, 0, rect.width, rect.height);
+
+                // 3. Draw the masked inpaint onto the original image
+                compCtx.drawImage(maskCanvas, 0, 0);
+
+                resolve(compCanvas.toDataURL('image/png'));
+              } catch (e) {
+                reject(e);
+              }
+            }
+          };
+
+          const onImgError = (e: any) => reject(e);
+
+          origImg.crossOrigin = 'anonymous';
+          maskImg.crossOrigin = 'anonymous';
+          inpaintedImg.crossOrigin = 'anonymous';
+
+          origImg.onload = onImgLoad;
+          maskImg.onload = onImgLoad;
+          inpaintedImg.onload = onImgLoad;
+
+          origImg.onerror = onImgError;
+          maskImg.onerror = onImgError;
+          inpaintedImg.onerror = onImgError;
+
+          origImg.src = imageURL;
+          maskImg.src = maskURL;
+          inpaintedImg.src = resultURL;
+        });
+
         paths.forEach((p: fabric.Path) => fabricCanvas.remove(p));
 
-        const newImg = await fabric.Image.fromURL(resultURL, { crossOrigin: 'anonymous' });
+        const newImg = await fabric.Image.fromURL(compositeUrl, { crossOrigin: 'anonymous' });
         newImg.set({
-          left: imgObj.left,
-          top: imgObj.top,
-          scaleX: imgObj.scaleX,
-          scaleY: imgObj.scaleY,
-          angle: imgObj.angle,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          scaleX: 1,
+          scaleY: 1,
+          angle: 0,
           selectable: true,
           hasControls: true,
           cornerColor: '#c084fc',
@@ -306,6 +436,8 @@ export const ToolPanel: React.FC = () => {
       setError(null);
 
       try {
+        const rect = imgObj.getBoundingRect();
+        
         // Hide paths if any are drawn
         const originalVisibility: { [key: number]: boolean } = {};
         fabricCanvas.getObjects().forEach((obj: fabric.Object, idx: number) => {
@@ -314,7 +446,14 @@ export const ToolPanel: React.FC = () => {
         });
         fabricCanvas.renderAll();
 
-        const imageURL = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 });
+        const imageURL = fabricCanvas.toDataURL({ 
+          format: 'png',
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          multiplier: 1
+        });
         const imageBlob = await (await fetch(imageURL)).blob();
 
         // Restore original visibility for paths
@@ -336,11 +475,13 @@ export const ToolPanel: React.FC = () => {
 
         const newImg = await fabric.Image.fromURL(resultURL, { crossOrigin: 'anonymous' });
         newImg.set({
-          left: imgObj.left,
-          top: imgObj.top,
-          scaleX: imgObj.scaleX,
-          scaleY: imgObj.scaleY,
-          angle: imgObj.angle,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          scaleX: 1,
+          scaleY: 1,
+          angle: 0,
           selectable: true,
           hasControls: true,
           cornerColor: '#c084fc',
@@ -394,6 +535,24 @@ export const ToolPanel: React.FC = () => {
         targetW = (targetH * 9) / 16;
       }
 
+      if (inpaintingProvider === 'huggingface') {
+        const scale = Math.min(1, 1536 / Math.max(targetW, targetH));
+        targetW = Math.round(targetW * scale);
+        targetH = Math.round(targetH * scale);
+
+        if (targetW < 720) {
+          targetH = Math.round(targetH * (720 / targetW));
+          targetW = 720;
+        }
+        if (targetH < 720) {
+          targetW = Math.round(targetW * (720 / targetH));
+          targetH = 720;
+        }
+
+        targetW = Math.min(1536, Math.max(720, Math.round(targetW)));
+        targetH = Math.min(1536, Math.max(720, Math.round(targetH)));
+      }
+
       const imgCanvas = document.createElement('canvas');
       imgCanvas.width = targetW;
       imgCanvas.height = targetH;
@@ -402,6 +561,16 @@ export const ToolPanel: React.FC = () => {
       imgCtx.fillRect(0, 0, targetW, targetH);
 
       const originalImageEl = imgObj._element as HTMLImageElement;
+
+      // Extract original unscaled image blob
+      const origCanvas = document.createElement('canvas');
+      origCanvas.width = originalImageEl.naturalWidth || imgObj.width!;
+      origCanvas.height = originalImageEl.naturalHeight || imgObj.height!;
+      const origCtx = origCanvas.getContext('2d')!;
+      origCtx.drawImage(originalImageEl, 0, 0);
+      const originalBlob = await new Promise<Blob>((resolve) => 
+        origCanvas.toBlob((b) => resolve(b!), 'image/png')
+      );
       
       const imgW = imgObj.width! * imgObj.scaleX!;
       const imgH = imgObj.height! * imgObj.scaleY!;
@@ -431,17 +600,36 @@ export const ToolPanel: React.FC = () => {
 
       let resultURL: string;
       try {
-        resultURL = await expandImage(imageBlob, maskBlob, expandPrompt, hfToken, falKey, runwareKey, inpaintingProvider);
+        resultURL = await expandImage(
+          imageBlob, 
+          maskBlob, 
+          expandPrompt, 
+          hfToken, 
+          falKey, 
+          runwareKey, 
+          inpaintingProvider,
+          targetW,
+          targetH,
+          originalBlob
+        );
       } catch (err: any) {
         console.warn('Server outpainting failed, attempting local fallback...', err);
-        setIsLoading(true, 'Server key failed. Running local fallback (free offline expand)...');
-        resultURL = await localInpaint(imageBlob, maskBlob);
+        setIsLoading(true, 'Running local fallback (no-blur clean padding)...');
+        resultURL = URL.createObjectURL(imageBlob);
       }
+
+      // Resize the canvas to match the expanded image dimensions
+      useStore.getState().setCanvasSize(targetW, targetH);
+      fabricCanvas.setDimensions({ width: targetW, height: targetH });
 
       const newImg = await fabric.Image.fromURL(resultURL, { crossOrigin: 'anonymous' });
       newImg.set({
-        left: (fabricCanvas.width! - targetW) / 2,
-        top: (fabricCanvas.height! - targetH) / 2,
+        left: 0,
+        top: 0,
+        width: targetW,
+        height: targetH,
+        scaleX: 1,
+        scaleY: 1,
         selectable: true,
         hasControls: true,
         cornerColor: '#c084fc',
@@ -579,10 +767,18 @@ export const ToolPanel: React.FC = () => {
         transparentCorners: false,
       });
 
-      const fgImg = await fabric.Image.fromURL(subjectUrl, { crossOrigin: 'anonymous' });
+      const trimResult = await trimTransparentBorders(subjectImg);
+      const fgImg = await fabric.Image.fromURL(trimResult.url, { crossOrigin: 'anonymous' });
+      
+      const rad = (imgObj.angle || 0) * Math.PI / 180;
+      const dx = trimResult.cropX * (imgObj.scaleX || 1);
+      const dy = trimResult.cropY * (imgObj.scaleY || 1);
+      const newLeft = imgObj.left! + (dx * Math.cos(rad) - dy * Math.sin(rad));
+      const newTop = imgObj.top! + (dx * Math.sin(rad) + dy * Math.cos(rad));
+
       fgImg.set({
-        left: imgObj.left,
-        top: imgObj.top,
+        left: newLeft,
+        top: newTop,
         scaleX: imgObj.scaleX,
         scaleY: imgObj.scaleY,
         angle: imgObj.angle,
@@ -719,6 +915,46 @@ export const ToolPanel: React.FC = () => {
                       <Trash2 className="h-4 w-4" />
                       <span>Purge Board</span>
                     </button>
+                  </div>
+
+                  {/* Workspace Background Color Changer */}
+                  <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col gap-3">
+                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Workspace Background</span>
+                    
+                    <div className="flex items-center justify-between gap-2.5">
+                      <div className="flex gap-1.5">
+                        {/* Preset Colors */}
+                        {[
+                           { name: 'Black', value: '#000000' },
+                           { name: 'White', value: '#ffffff' },
+                           { name: 'Light Blue', value: '#dbeafe' },
+                           { name: 'Light Yellow', value: '#fef9c3' },
+                         ].map((preset) => (
+                          <button
+                            key={preset.value}
+                            onClick={() => setWorkspaceBg(preset.value)}
+                            style={{ backgroundColor: preset.value }}
+                            className={`w-6 h-6 rounded-full border cursor-pointer transition-all duration-200 ${
+                              workspaceBg === preset.value
+                                ? 'border-[#c084fc] scale-110 shadow-[0_0_8px_#c084fc]'
+                                : 'border-white/10 hover:scale-105'
+                            }`}
+                            title={preset.name}
+                          />
+                        ))}
+                      </div>
+                      
+                      {/* Custom Color Input */}
+                      <div className="flex items-center gap-1.5 bg-[#16161a] border border-white/5 rounded-lg px-2 py-1">
+                        <input
+                          type="color"
+                          value={workspaceBg}
+                          onChange={(e) => setWorkspaceBg(e.target.value)}
+                          className="w-5 h-5 bg-transparent border-0 cursor-pointer rounded overflow-hidden"
+                        />
+                        <span className="text-[10px] text-zinc-400 font-mono uppercase font-bold">{workspaceBg}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

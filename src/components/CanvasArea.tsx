@@ -15,6 +15,7 @@ export const CanvasArea: React.FC = () => {
     brushSize,
     canvasWidth,
     canvasHeight,
+    workspaceBg,
   } = useStore();
 
   // Initialize Fabric Canvas
@@ -22,8 +23,8 @@ export const CanvasArea: React.FC = () => {
     if (!canvasElRef.current) return;
 
     const canvas = new fabric.Canvas(canvasElRef.current, {
-      width: canvasWidth,
-      height: canvasHeight,
+      width: useStore.getState().canvasWidth,
+      height: useStore.getState().canvasHeight,
       backgroundColor: 'transparent', // Transparent to allow checkered pattern underneath
       preserveObjectStacking: true,
     });
@@ -43,7 +44,14 @@ export const CanvasArea: React.FC = () => {
       canvas.dispose();
       setFabricCanvas(null);
     };
-  }, [canvasWidth, canvasHeight, setFabricCanvas]);
+  }, [setFabricCanvas]);
+
+  // Handle Dynamic Resize
+  useEffect(() => {
+    if (!fabricCanvas) return;
+    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+    fabricCanvas.renderAll();
+  }, [canvasWidth, canvasHeight, fabricCanvas]);
 
   // Handle Zoom change
   useEffect(() => {
@@ -139,7 +147,8 @@ export const CanvasArea: React.FC = () => {
   return (
     <div 
       ref={containerRef}
-      className="flex-1 bg-[#121315] flex items-center justify-center p-8 overflow-auto relative"
+      className="flex-1 flex items-center justify-center p-8 overflow-auto relative transition-colors duration-300"
+      style={{ backgroundColor: workspaceBg }}
     >
       {/* Canvas wrapper with checkered pattern underneath for transparent images */}
       <div className="relative shadow-2xl rounded overflow-hidden checkered-pattern border border-zinc-800/80">

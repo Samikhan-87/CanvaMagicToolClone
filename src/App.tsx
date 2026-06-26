@@ -73,15 +73,22 @@ function App() {
       
       try {
         const img = await fabric.Image.fromURL(url, { crossOrigin: 'anonymous' });
-        const scaleX = (fabricCanvas.width! - 120) / img.width!;
-        const scaleY = (fabricCanvas.height! - 120) / img.height!;
-        const scale = Math.min(scaleX, scaleY, 1);
+        const imgW = img.width || 800;
+        const imgH = img.height || 600;
+
+        const canvasW = fabricCanvas.width || 800;
+        const canvasH = fabricCanvas.height || 600;
         
+        let scale = 1;
+        if (imgW > canvasW || imgH > canvasH) {
+          const scaleX = canvasW / imgW;
+          const scaleY = canvasH / imgH;
+          scale = Math.min(scaleX, scaleY) * 0.8;
+        }
+
         img.set({
           scaleX: scale,
           scaleY: scale,
-          left: (fabricCanvas.width! - img.width! * scale) / 2,
-          top: (fabricCanvas.height! - img.height! * scale) / 2,
           selectable: true,
           hasControls: true,
           cornerColor: '#c084fc',
@@ -90,11 +97,12 @@ function App() {
         });
         
         fabricCanvas.add(img);
+        fabricCanvas.centerObject(img);
         fabricCanvas.setActiveObject(img);
         
         // Dynamic pop entrance for newly uploaded image
         gsap.fromTo(img, 
-          { scaleX: 0.1, scaleY: 0.1, opacity: 0 },
+          { scaleX: scale * 0.1, scaleY: scale * 0.1, opacity: 0 },
           { 
             scaleX: scale, 
             scaleY: scale, 
@@ -112,7 +120,7 @@ function App() {
     reader.readAsDataURL(file);
   };
 
-  const handleExportPNG = () => {
+  const handleExportPNG = (fileName: string) => {
     if (!fabricCanvas) return;
     const dataUrl = fabricCanvas.toDataURL({
       format: 'png',
@@ -120,13 +128,14 @@ function App() {
       multiplier: 1,
     });
     
+    const name = (fileName || 'magic-design').trim().replace(/[/\\?%*:|"<>\s]+/g, '_');
     const link = document.createElement('a');
-    link.download = 'magic-design.png';
+    link.download = `${name}.png`;
     link.href = dataUrl;
     link.click();
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = (fileName: string) => {
     if (!fabricCanvas) return;
     const dataUrl = fabricCanvas.toDataURL({
       format: 'png',
@@ -141,7 +150,8 @@ function App() {
     });
 
     pdf.addImage(dataUrl, 'PNG', 0, 0, fabricCanvas.width!, fabricCanvas.height!);
-    pdf.save('magic-design.pdf');
+    const name = (fileName || 'magic-design').trim().replace(/[/\\?%*:|"<>\s]+/g, '_');
+    pdf.save(`${name}.pdf`);
   };
 
   const handleSaveKeys = (e: React.FormEvent) => {
@@ -244,17 +254,18 @@ function App() {
                 />
               </div>
 
-              <div>
+               <div>
                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
                   Inpainting & Outpainting Provider
                 </label>
                 <select
                   value={tempInpaintingProvider}
-                  onChange={(e) => setTempInpaintingProvider(e.target.value as 'fal' | 'runware')}
+                  onChange={(e) => setTempInpaintingProvider(e.target.value as 'fal' | 'runware' | 'huggingface')}
                   className="w-full bg-[#16161a] border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-zinc-300 focus:outline-none focus:border-violet-500/80 cursor-pointer"
                 >
                   <option value="fal">Fal.ai (Direct Inpainting)</option>
                   <option value="runware">Runware (FLUX Fill - Free Trial Friendly)</option>
+                  <option value="huggingface">Hugging Face Serverless (100% Free)</option>
                 </select>
               </div>
 
@@ -271,7 +282,7 @@ function App() {
                 />
               </div>
 
-              {tempInpaintingProvider === 'fal' ? (
+              {tempInpaintingProvider === 'fal' && (
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
                     Fal.ai API Key
@@ -284,7 +295,9 @@ function App() {
                     className="w-full bg-white/[0.02] border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-violet-500/80 transition-all"
                   />
                 </div>
-              ) : (
+              )}
+
+              {tempInpaintingProvider === 'runware' && (
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
                     Runware API Key
@@ -296,6 +309,12 @@ function App() {
                     placeholder="Runware API Key..."
                     className="w-full bg-white/[0.02] border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-violet-500/80 transition-all"
                   />
+                </div>
+              )}
+
+              {tempInpaintingProvider === 'huggingface' && (
+                <div className="text-[10px] text-zinc-400 bg-white/[0.02] border border-white/5 rounded-xl p-3 leading-relaxed">
+                  <span>Hugging Face model <strong>stabilityai/stable-diffusion-2-inpainting</strong> will be used. It runs 100% free using your Hugging Face Access Token set above.</span>
                 </div>
               )}
 

@@ -17,13 +17,13 @@ interface AppState {
   falKey: string;
   runwareKey: string;
   photoroomKey: string;
-  inpaintingProvider: 'fal' | 'runware';
+  inpaintingProvider: 'fal' | 'runware' | 'huggingface';
   setHfToken: (token: string) => void;
   setGroqKey: (key: string) => void;
   setFalKey: (key: string) => void;
   setRunwareKey: (key: string) => void;
   setPhotoroomKey: (key: string) => void;
-  setInpaintingProvider: (provider: 'fal' | 'runware') => void;
+  setInpaintingProvider: (provider: 'fal' | 'runware' | 'huggingface') => void;
   
   // Loading states
   isLoading: boolean;
@@ -33,7 +33,9 @@ interface AppState {
   // Canvas configuration
   canvasWidth: number;
   canvasHeight: number;
+  workspaceBg: string;
   setCanvasSize: (width: number, height: number) => void;
+  setWorkspaceBg: (color: string) => void;
   
   // Eraser / brush settings
   brushSize: number;
@@ -50,11 +52,78 @@ interface AppState {
   undo: () => void;
   redo: () => void;
   clearHistory: () => void;
+
+  // Tool-specific workspaces
+  toolCanvasStates: {
+    [key in Exclude<ToolType, 'select'>]?: {
+      canvasState: any;
+      history: any[];
+      redoStack: any[];
+    };
+  };
+  lastActiveWorkspaceTool: Exclude<ToolType, 'select'>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
   activeTool: 'select',
-  setActiveTool: (tool) => set({ activeTool: tool }),
+  lastActiveWorkspaceTool: 'text-to-image',
+  toolCanvasStates: {},
+  
+  setActiveTool: (tool) => {
+    const { activeTool, fabricCanvas, toolCanvasStates, lastActiveWorkspaceTool, history, redoStack } = get();
+    
+    if (!fabricCanvas) {
+      set({ activeTool: tool });
+      return;
+    }
+
+    const sourceTool = activeTool === 'select' ? lastActiveWorkspaceTool : activeTool;
+    const currentCanvasState = fabricCanvas.toObject();
+
+    // 1. Save current tool's state
+    const updatedStates = {
+      ...toolCanvasStates,
+      [sourceTool]: {
+        canvasState: currentCanvasState,
+        history,
+        redoStack
+      }
+    };
+
+    // 2. Prepare states for loading the target tool
+    if (tool === 'select') {
+      set({
+        activeTool: tool,
+        toolCanvasStates: updatedStates
+      });
+    } else {
+      const targetData = updatedStates[tool];
+      set({
+        activeTool: tool,
+        lastActiveWorkspaceTool: tool,
+        toolCanvasStates: updatedStates
+      });
+
+      if (targetData && targetData.canvasState) {
+        fabricCanvas.loadFromJSON(targetData.canvasState).then(() => {
+          fabricCanvas.renderAll();
+          set({
+            history: targetData.history || [],
+            redoStack: targetData.redoStack || []
+          });
+        });
+      } else {
+        fabricCanvas.clear();
+        fabricCanvas.backgroundColor = 'transparent';
+        fabricCanvas.renderAll();
+        const cleanState = fabricCanvas.toObject();
+        set({
+          history: [cleanState],
+          redoStack: []
+        });
+      }
+    }
+  },
   
   fabricCanvas: null,
   setFabricCanvas: (canvas) => {
@@ -77,7 +146,7 @@ export const useStore = create<AppState>((set, get) => ({
   setFalKey: (key) => set({ falKey: key.trim() }),
   setRunwareKey: (key) => set({ runwareKey: key.trim() }),
   setPhotoroomKey: (key) => set({ photoroomKey: key.trim() }),
-  setInpaintingProvider: (provider) => set({ inpaintingProvider: provider }),
+  setInpaintingProvider: (provider: 'fal' | 'runware' | 'huggingface') => set({ inpaintingProvider: provider }),
   
   isLoading: false,
   loadingMessage: '',
@@ -85,7 +154,9 @@ export const useStore = create<AppState>((set, get) => ({
   
   canvasWidth: 800,
   canvasHeight: 600,
+  workspaceBg: '#121315',
   setCanvasSize: (width, height) => set({ canvasWidth: width, canvasHeight: height }),
+  setWorkspaceBg: (color) => set({ workspaceBg: color }),
   
   brushSize: 30,
   setBrushSize: (size) => set({ brushSize: size }),
