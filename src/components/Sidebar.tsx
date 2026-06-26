@@ -60,9 +60,8 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside className="w-[76px] bg-[#11141a]/95 backdrop-blur-md flex flex-col items-center py-4 gap-2 border-r border-white/5 z-20 shrink-0 select-none h-full">
-      {/* Brand Logo */}
       <div className="w-12 h-12 mb-3 bg-white/[0.02] border border-white/5 rounded-xl flex items-center justify-center p-1.5 shadow-inner hover:scale-105 hover:bg-white/[0.04] transition-all duration-300 group cursor-pointer" title="Canva Magic Tool">
-        <img src="/favicon.svg" alt="Magic Logo" className="w-full h-full object-contain filter drop-shadow-[0_0_8px_rgba(192,132,252,0.4)] group-hover:rotate-12 transition-all duration-500" />
+        <img src="/favicon.svg" alt="Magic Logo" className="w-full h-full object-contain filter drop-shadow-[0_0_8px_rgba(88,255,141,0.4)] group-hover:rotate-12 transition-all duration-500" />
       </div>
 
       <div className="flex flex-col gap-1.5 w-full px-1.5">

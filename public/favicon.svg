@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
   <defs>
     <linearGradient id="magic-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ff007f" />
-      <stop offset="50%" stop-color="#8a2be2" />
-      <stop offset="100%" stop-color="#00d4ff" />
+      <stop offset="0%" stop-color="#58ff8d" />
+      <stop offset="50%" stop-color="#4facfe" />
+      <stop offset="100%" stop-color="#00e5ff" />
     </linearGradient>
     <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur stdDeviation="3" result="blur" />
@@ -13,13 +13,13 @@
   <!-- Background glow -->
   <circle cx="50" cy="50" r="35" fill="url(#magic-grad)" opacity="0.15" filter="url(#glow)" />
   <!-- Magic Wand Handle -->
-  <rect x="25" y="70" width="8" height="25" rx="4" transform="rotate(-45 25 70)" fill="#1c1936" stroke="url(#magic-grad)" stroke-width="1.5" />
+  <rect x="25" y="70" width="8" height="25" rx="4" transform="rotate(-45 25 70)" fill="#11141a" stroke="url(#magic-grad)" stroke-width="1.5" />
   <!-- Magic Wand Shaft -->
   <rect x="30" y="32" width="6" height="42" rx="2" transform="rotate(-45 30 32)" fill="url(#magic-grad)" />
   <!-- Magic Wand Tip -->
   <circle cx="65" cy="35" r="5" fill="#ffffff" filter="url(#glow)" />
   <!-- Sparkling Stars -->
   <path d="M 65 12 L 67 20 L 75 22 L 67 24 L 65 32 L 63 24 L 55 22 L 63 20 Z" fill="#ffffff" />
-  <path d="M 40 25 L 41 30 L 46 31 L 41 32 L 40 37 L 39 32 L 34 31 L 39 30 Z" fill="#00d4ff" opacity="0.8" />
-  <path d="M 75 45 L 76 49 L 80 50 L 76 51 L 75 55 L 74 51 L 70 50 L 74 49 Z" fill="#ff007f" opacity="0.8" />
+  <path d="M 40 25 L 41 30 L 46 31 L 41 32 L 40 37 L 39 32 L 34 31 L 39 30 Z" fill="#00e5ff" opacity="0.8" />
+  <path d="M 75 45 L 76 49 L 80 50 L 76 51 L 75 55 L 74 51 L 70 50 L 74 49 Z" fill="#58ff8d" opacity="0.8" />
 </svg>

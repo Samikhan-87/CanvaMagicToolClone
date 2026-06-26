@@ -216,7 +216,7 @@ function App() {
           <div className="bg-[#11141a]/90 border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in duration-200">
             <div className="flex items-center justify-between border-b border-white/5 pb-3.5 mb-4">
               <div className="flex items-center gap-2.5">
-                <Key className="h-4 w-4 text-[#00f2fe]" />
+                <Key className="h-4 w-4 text-[#58ff8d]" />
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider">Configure API Credentials</h3>
               </div>
               <button 
